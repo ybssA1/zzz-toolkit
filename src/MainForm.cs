@@ -348,11 +348,12 @@ public sealed class MainForm : Form
                 _lblTouchState.Text = "本机不支持";
                 Log("触屏模拟：本机系统拒绝触摸注入，摇杆无法通过这条路解决。");
                 MessageBox.Show(this,
-                    "这台电脑的系统不允许触摸注入，所以鼠标没法变成手指，虚拟摇杆依然推不动。\n\n" +
-                    "原因：触摸注入依赖系统的触摸支持（TabletInputService 等），本机不具备或被关闭了。\n\n" +
-                    "可行的替代：\n" +
-                    "  1. 把画面串流到手机/平板上玩 —— 那边是真触摸，摇杆正常；\n" +
-                    "  2. 接一块真的触摸屏或用 Spacedesk 之类的方案，把平板变成触摸显示器。",
+                    "这台电脑的系统不允许程序注入触摸，所以鼠标没法变成手指，虚拟摇杆依然推不动。\n\n" +
+                    "如果你是用手机串流（例如网易UU远程）玩，正确做法是在手机端开启触控模式：\n" +
+                    "    UU远程 →[操作]→[屏幕触控]→ 打开[平板触控模式]\n" +
+                    "开启后手机会把触摸当真实触摸传给电脑，本工具切出来的手机 UI 就能完整操作\n" +
+                    "（包括摇杆），而且支持按下拖动、双指缩放等手势。\n\n" +
+                    "其它可行方案：接一块真的触摸屏，或用 Spacedesk 把平板变成触摸显示器。",
                     "本机不支持触屏模拟", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 _loading = true; _chkTouchSim.Checked = false; _loading = false;
             }
