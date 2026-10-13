@@ -18,6 +18,10 @@ public sealed class MainForm : Form
     private readonly CheckBox _chkMobileUi = new();
     private readonly Label _lblUiState = new();
 
+    private readonly CheckBox _chkTouchSim = new();
+    private readonly Label _lblTouchState = new();
+    private readonly TouchMouseBridge _touch = new();
+
     private readonly Button _btnLaunch = new();
     private readonly LinkLabel _lnkAuthor = new();
     private readonly TextBox _log = new();
@@ -26,6 +30,7 @@ public sealed class MainForm : Form
 
     private bool _gameWasRunning;
     private bool _blurAppliedThisRun;
+    private string? _lastTouchError;
     private bool _loading;
 
     public const string AuthorName = "Ex_M";
@@ -37,7 +42,7 @@ public sealed class MainForm : Form
     public MainForm()
     {
         Text = "绝区零工具箱";
-        ClientSize = new Size(560, 424);
+        ClientSize = new Size(560, 448);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
@@ -67,24 +72,30 @@ public sealed class MainForm : Form
         g1.Controls.AddRange(new Control[] { _gamePath, _btnBrowse, _btnDetect });
         Controls.Add(g1); y += 92;
 
-        // ②③ 两个开关
-        var g2 = new GroupBox { Text = " 功能开关 ", Location = new Point(10, y), Size = new Size(W, 122) };
+        // ②③④ 三个开关
+        var g2 = new GroupBox { Text = " 功能开关 ", Location = new Point(10, y), Size = new Size(W, 148) };
         _chkBlur.Text = "反虚化（关闭角色虚化 / 镜头贴近时的消隐）";
-        _chkBlur.Location = new Point(12, 28); _chkBlur.Size = new Size(400, 26);
+        _chkBlur.Location = new Point(12, 26); _chkBlur.Size = new Size(400, 26);
         _chkBlur.CheckedChanged += (_, _) => OnBlurToggled();
-        _btnApplyBlur.Text = "立即应用"; _btnApplyBlur.Location = new Point(424, 26); _btnApplyBlur.Size = new Size(104, 30);
+        _btnApplyBlur.Text = "立即应用"; _btnApplyBlur.Location = new Point(424, 24); _btnApplyBlur.Size = new Size(104, 30);
         _btnApplyBlur.Click += (_, _) => ApplyBlur(true);
-        _lblBlurState.Location = new Point(12, 56); _lblBlurState.Size = new Size(516, 18); _lblBlurState.AutoSize = false;
+        _lblBlurState.Location = new Point(30, 52); _lblBlurState.Size = new Size(498, 18); _lblBlurState.AutoSize = false;
         _lblBlurState.ForeColor = Color.DimGray;
 
         _chkMobileUi.Text = "手机触控 UI（下个游戏界面变成手机布局）";
-        _chkMobileUi.Location = new Point(12, 78); _chkMobileUi.Size = new Size(400, 26);
+        _chkMobileUi.Location = new Point(12, 76); _chkMobileUi.Size = new Size(400, 26);
         _chkMobileUi.CheckedChanged += (_, _) => OnMobileUiToggled();
-        _lblUiState.Location = new Point(380, 82); _lblUiState.Size = new Size(148, 20); _lblUiState.AutoSize = false;
+        _lblUiState.Location = new Point(378, 80); _lblUiState.Size = new Size(150, 20); _lblUiState.AutoSize = false;
         _lblUiState.TextAlign = ContentAlignment.MiddleRight; _lblUiState.ForeColor = Color.DimGray;
 
-        g2.Controls.AddRange(new Control[] { _chkBlur, _btnApplyBlur, _lblBlurState, _chkMobileUi, _lblUiState });
-        Controls.Add(g2); y += 130;
+        _chkTouchSim.Text = "触屏模拟（把鼠标当手指，修手机 UI 摇杆不能动）";
+        _chkTouchSim.Location = new Point(12, 106); _chkTouchSim.Size = new Size(400, 26);
+        _chkTouchSim.CheckedChanged += (_, _) => OnTouchSimToggled();
+        _lblTouchState.Location = new Point(378, 110); _lblTouchState.Size = new Size(150, 20); _lblTouchState.AutoSize = false;
+        _lblTouchState.TextAlign = ContentAlignment.MiddleRight; _lblTouchState.ForeColor = Color.DimGray;
+
+        g2.Controls.AddRange(new Control[] { _chkBlur, _btnApplyBlur, _lblBlurState, _chkMobileUi, _lblUiState, _chkTouchSim, _lblTouchState });
+        Controls.Add(g2); y += 156;
 
         _btnLaunch.Text = "启动游戏"; _btnLaunch.Location = new Point(10, y); _btnLaunch.Size = new Size(W, 34);
         _btnLaunch.Click += (_, _) => LaunchGame();
@@ -295,6 +306,65 @@ public sealed class MainForm : Form
         }
     }
 
+    // ── 开关三：触屏模拟 ─────────────────────────────────────────────────
+    /// <summary>
+    /// 把鼠标动作翻译成系统级触摸事件，专治移动端 UI 的虚拟摇杆不动
+    /// （摇杆读的是 Touchscreen 设备，鼠标给不了触摸）。
+    /// </summary>
+    private void OnTouchSimToggled()
+    {
+        if (_loading) return;
+        if (_chkTouchSim.Checked)
+        {
+            if (!GameLocator.IsGameRunning())
+            {
+                Log("触屏模拟：已开启，游戏启动后自动生效。");
+                _lblTouchState.Text = "等待游戏启动";
+                return;
+            }
+            StartTouchSim();
+        }
+        else
+        {
+            _touch.Stop();
+            Log("触屏模拟：已关闭，鼠标恢复原样。");
+            _lblTouchState.Text = "已关闭";
+        }
+    }
+
+    private void StartTouchSim()
+    {
+        uint pid = GameLocator.GameProcessId();
+        if (pid == 0) { _lblTouchState.Text = "找不到游戏进程"; return; }
+
+        if (_touch.Start(pid))
+        {
+            Log($"触屏模拟：已接管鼠标（仅当游戏窗口在前台时）。游戏 pid={pid}，触点结构大小 {TouchMouseBridge.ContactStructSize} 字节。");
+            _lblTouchState.Text = "生效中";
+
+            if (!_touch.SelfTest())
+            {
+                _touch.Stop();
+                _lblTouchState.Text = "本机不支持";
+                Log("触屏模拟：本机系统拒绝触摸注入，摇杆无法通过这条路解决。");
+                MessageBox.Show(this,
+                    "这台电脑的系统不允许触摸注入，所以鼠标没法变成手指，虚拟摇杆依然推不动。\n\n" +
+                    "原因：触摸注入依赖系统的触摸支持（TabletInputService 等），本机不具备或被关闭了。\n\n" +
+                    "可行的替代：\n" +
+                    "  1. 把画面串流到手机/平板上玩 —— 那边是真触摸，摇杆正常；\n" +
+                    "  2. 接一块真的触摸屏或用 Spacedesk 之类的方案，把平板变成触摸显示器。",
+                    "本机不支持触屏模拟", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                _loading = true; _chkTouchSim.Checked = false; _loading = false;
+            }
+        }
+        else
+        {
+            Log("触屏模拟启动失败：" + (_touch.LastError ?? "未知原因"));
+            _lblTouchState.Text = "启动失败";
+            _loading = true; _chkTouchSim.Checked = false; _loading = false;
+        }
+    }
+
     // ── 启动 / 监视 ──────────────────────────────────────────────────────
     private void LaunchGame()
     {
@@ -319,12 +389,32 @@ public sealed class MainForm : Form
     private void WatchTick()
     {
         bool running = GameLocator.IsGameRunning();
+        // 触屏模拟在跑的时候，把已注入的触摸次数显示出来，便于确认它真的在工作
+        if (_touch.IsRunning)
+        {
+            _lblTouchState.Text = $"命中 {_touch.HookHits} / 注入 {_touch.InjectedCount}";
+            if (_touch.LastError is not null && _lastTouchError != _touch.LastError)
+            {
+                _lastTouchError = _touch.LastError;
+                Log("触屏模拟：" + _touch.LastError);
+            }
+        }
+
         if (running != _gameWasRunning)
         {
             _gameWasRunning = running;
             _blurAppliedThisRun = false;
             RefreshUiState();
             if (running && _chkBlur.Checked) ApplyBlur(false);
+
+            // 触屏模拟跟随游戏进程：游戏起来就接管，游戏退出就交还鼠标
+            if (running && _chkTouchSim.Checked && !_touch.IsRunning) StartTouchSim();
+            else if (!running && _touch.IsRunning)
+            {
+                _touch.Stop();
+                _lblTouchState.Text = "游戏已退出";
+                Log("触屏模拟：游戏已退出，已交还鼠标。");
+            }
         }
     }
 
@@ -339,6 +429,7 @@ public sealed class MainForm : Form
     {
         public string? GamePath { get; set; }
         public bool BlurEnabled { get; set; }
+        public bool TouchSimEnabled { get; set; }
     }
 
     private void LoadConfig()
@@ -350,6 +441,7 @@ public sealed class MainForm : Form
             if (c is null) return;
             _gamePath.Text = c.GamePath ?? "";
             _chkBlur.Checked = c.BlurEnabled;
+            _chkTouchSim.Checked = c.TouchSimEnabled;
         }
         catch { /* 配置坏了就用默认值 */ }
     }
@@ -359,7 +451,12 @@ public sealed class MainForm : Form
         try
         {
             File.WriteAllText(ConfigPath, JsonSerializer.Serialize(
-                new AppConfig { GamePath = _gamePath.Text, BlurEnabled = _chkBlur.Checked },
+                new AppConfig
+                {
+                    GamePath = _gamePath.Text,
+                    BlurEnabled = _chkBlur.Checked,
+                    TouchSimEnabled = _chkTouchSim.Checked,
+                },
                 new JsonSerializerOptions { WriteIndented = true }));
         }
         catch { /* 忽略 */ }

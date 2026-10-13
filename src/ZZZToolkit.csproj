@@ -10,7 +10,7 @@
     <AssemblyName>ZZZToolkit</AssemblyName>
     <RootNamespace>ZzzToolkit</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Product>绝区零工具箱</Product>
     <Description>绝区零 PC 端手机触屏 UI 开关 + 虚化补丁集成</Description>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>

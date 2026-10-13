@@ -60,6 +60,14 @@ public static class GameLocator
     public static bool IsGameDir(string? dir) =>
         !string.IsNullOrWhiteSpace(dir) && File.Exists(Path.Combine(dir!, ExeName));
 
+    /// <summary>取游戏进程的 PID；没在运行返回 0。</summary>
+    public static uint GameProcessId()
+    {
+        var p = System.Diagnostics.Process.GetProcessesByName(
+            Path.GetFileNameWithoutExtension(ExeName)).FirstOrDefault();
+        return p is null ? 0u : (uint)p.Id;
+    }
+
     public static bool IsGameRunning() =>
         System.Diagnostics.Process.GetProcessesByName(
             Path.GetFileNameWithoutExtension(ExeName)).Length > 0;
