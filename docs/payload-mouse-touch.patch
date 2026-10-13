@@ -1,0 +1,67 @@
+diff --git a/games/zzz/src/payload.cpp b/games/zzz/src/payload.cpp
+index ba3c527..212fe15 100644
+--- a/games/zzz/src/payload.cpp
++++ b/games/zzz/src/payload.cpp
+@@ -64,7 +64,20 @@ ULONGLONG last_source_time{},last_frame_time{};
+ int64_t snapshot_frame=-1;
+ int echo_frames{};
+ bool snapshot_is_bridge{};
+-std::atomic<uint64_t> touch_messages{},pointer_messages{},count_calls{},bridge_frames{};
++std::atomic<uint64_t> touch_messages{},pointer_messages{},mouse_messages{},count_calls{},bridge_frames{};
++// Per-source accepted-contact counters: index 1=WM_TOUCH, 2=WM_POINTER, 3=mouse.
++std::atomic<uint64_t> source_downs[4]{};
++// Third touch source: the mouse. Off unless TOUCHUI_MOUSE is set to something not starting
++// with '0', so the stock behaviour is unchanged unless it is asked for.
++constexpr uint32_t mouse_pointer_id=0x4d;
++bool mouse_down{};
++bool mouse_bridge_enabled() {
++    static const bool on=[](){
++        char value[16]{};const DWORD length=GetEnvironmentVariableA("TOUCHUI_MOUSE",value,sizeof(value));
++        return length>0&&value[0]!='0';
++    }();
++    return on;
++}
+ std::atomic<int> last_native_count{},last_bridge_count{},effective_layout{-1};
+ 
+ template<class T> bool read_at(uintptr_t address,T& result) {
+@@ -210,7 +223,7 @@ void record_input(int source,uint32_t id,touch::Vec2 position,bool down,bool up,
+     }
+     last_source_time=now;
+     const uint64_t key=(static_cast<uint64_t>(source)<<32)|id;
+-    if(down){active_keys.insert(key);input.down(key,position);}
++    if(down){++source_downs[source&3u];active_keys.insert(key);input.down(key,position);}
+     else input.move(key,position);
+     if(up||canceled){input.up(key,position,canceled);active_keys.erase(key);}
+ }
+@@ -230,7 +243,19 @@ LRESULT CALLBACK window_proc(HWND hwnd,UINT message,WPARAM wparam,LPARAM lparam)
+         POINTER_INFO info{};
+         if(enabled.load()&&GetPointerInfo(GET_POINTERID_WPARAM(wparam),&info)&&info.pointerType==PT_TOUCH)
+             record_input(2,info.pointerId,normalize(hwnd,info.ptPixelLocation),message==WM_POINTERDOWN,message==WM_POINTERUP,(info.pointerFlags&POINTER_FLAG_CANCELED)!=0);
++    } else if(mouse_bridge_enabled()&&(message==WM_LBUTTONDOWN||message==WM_LBUTTONUP||(message==WM_MOUSEMOVE&&mouse_down))) {
++        // Feed the mouse in as one finger. It shares record_input with the WM_TOUCH and
++        // WM_POINTER paths, so it lands in the same snapshot and the same Unity interface.
++        // Moves are only forwarded while the button is held: a bare WM_MOUSEMOVE would
++        // otherwise call move() for a contact that was never opened.
++        ++mouse_messages;
++        RECT rect{};GetClientRect(hwnd,&rect);
++        const touch::Vec2 position{static_cast<float>(GET_X_LPARAM(lparam))/std::max<LONG>(1,rect.right),
++                                   static_cast<float>(GET_Y_LPARAM(lparam))/std::max<LONG>(1,rect.bottom)};
++        record_input(3,mouse_pointer_id,position,message==WM_LBUTTONDOWN,message==WM_LBUTTONUP,false);
++        if(message==WM_LBUTTONDOWN)mouse_down=true;else if(message==WM_LBUTTONUP)mouse_down=false;
+     } else if(message==WM_KILLFOCUS||message==WM_CANCELMODE||message==WM_POINTERCAPTURECHANGED) {
++        mouse_down=false;
+         cancel_contacts();
+     } else if(message==WM_TIMER&&wparam==timer_id.load()) {
+         maintain_ui();return 0;
+@@ -333,8 +358,9 @@ void worker() {
+         if(now-last_status>=5000) {
+             last_status=now;uint64_t accepted{},ignored{};
+             {InputGuard guard;accepted=input.accepted_downs;ignored=input.ignored_downs;}
+-            log("status enabled=%d UI=%d WM_TOUCH=%llu WM_POINTER=%llu downs=%llu dropped=%llu count_calls=%llu bridge_frames=%llu bridge_count=%d native_count_last_fallback=%d",
+-                enabled.load(),effective_layout.load(),touch_messages.load(),pointer_messages.load(),accepted,ignored,count_calls.load(),bridge_frames.load(),last_bridge_count.load(),last_native_count.load());
++            log("status enabled=%d UI=%d WM_TOUCH=%llu WM_POINTER=%llu MOUSE=%llu downs=%llu dropped=%llu count_calls=%llu bridge_frames=%llu bridge_count=%d native_count_last_fallback=%d srcdown_touch=%llu srcdown_pointer=%llu srcdown_mouse=%llu",
++                enabled.load(),effective_layout.load(),touch_messages.load(),pointer_messages.load(),mouse_messages.load(),accepted,ignored,count_calls.load(),bridge_frames.load(),last_bridge_count.load(),last_native_count.load(),
++                source_downs[1].load(),source_downs[2].load(),source_downs[3].load());
+         }
+         Sleep(200);
+     }

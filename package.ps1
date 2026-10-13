@@ -18,7 +18,7 @@ param(
     [ValidateSet('fx', 'self-contained')]
     [string]$Mode = 'fx',
     [string]$BlurSource = 'E:\win-x64',
-    [string]$TouchSource = 'C:\Users\Administrator\.dsh\dsh_wechat\_zzz-touchlaunch\src\dist',
+    [string]$TouchSource = 'H:\DSH-Archive\dsh_wechat\_zzz-touchlaunch\src\dist',
     [switch]$NoBlur,
     [string]$Version = '1.3.0'
 )
