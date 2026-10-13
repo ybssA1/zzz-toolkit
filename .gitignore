@@ -1,0 +1,12 @@
+# 构建产物
+bin/
+obj/
+dist/
+
+# 用户自己的配置与第三方组件
+src/zzz-toolkit.json
+blur/
+
+# 编辑器
+.vs/
+*.user
