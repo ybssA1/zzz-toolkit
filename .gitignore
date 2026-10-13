@@ -10,3 +10,4 @@ blur/
 # 编辑器
 .vs/
 *.user
+touch/

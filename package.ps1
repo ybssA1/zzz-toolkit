@@ -18,8 +18,9 @@ param(
     [ValidateSet('fx', 'self-contained')]
     [string]$Mode = 'fx',
     [string]$BlurSource = 'E:\win-x64',
+    [string]$TouchSource = 'C:\Users\Administrator\.dsh\dsh_wechat\_zzz-touchlaunch\src\dist',
     [switch]$NoBlur,
-    [string]$Version = '1.2.1'
+    [string]$Version = '1.3.0'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -61,6 +62,38 @@ if (-not $NoBlur) {
     $blurNote = "（按要求未包含反虚化组件）"
 }
 
+# 2b) 放入触控增强载荷（GPL-3.0，Jerry12228/TouchUILaunch + 本项目的鼠标补丁）
+$touchNote = ""
+$touchDir = Join-Path $stage 'touch'
+New-Item -ItemType Directory -Force -Path $touchDir | Out-Null
+$touchNeed = @('TouchUILaunch.exe', 'TouchUILaunch.dll')
+$touchMissing = @()
+foreach ($f in $touchNeed) {
+    $src = Join-Path $TouchSource $f
+    if (Test-Path $src) { Copy-Item $src $touchDir -Force } else { $touchMissing += $f }
+}
+if ($touchMissing.Count -gt 0) {
+    Remove-Item $touchDir -Recurse -Force
+    $touchNote = "（未含触控载荷：$TouchSource 缺 $($touchMissing -join ', ')）"
+} else {
+    $touchNote = "（已含触控增强载荷）"
+    $notice = @"
+触控增强载荷 —— 来源与许可
+
+本目录中的 TouchUILaunch.exe 与 TouchUILaunch.dll 来自开源项目
+  Jerry12228/TouchUILaunch  (https://github.com/Jerry12228/TouchUILaunch)
+许可：GNU General Public License v3.0 only (GPL-3.0-only)
+
+本项目在其基础上只做了一处改动：在 ZZZ 载荷里增加"鼠标作为第三条触摸来源"
+（由环境变量 TOUCHUI_MOUSE 控制），使没有触摸屏的电脑也能用鼠标驱动游戏内的
+手机 UI 虚拟摇杆。改动后的完整源码随本项目发布，遵循同一 GPL-3.0 许可。
+
+该载荷同时包含 HDE64 反汇编器（有独立的许可与版权声明，见原项目 third_party）。
+完整许可文本见 https://github.com/Jerry12228/TouchUILaunch/blob/master/LICENSE
+"@
+    Set-Content -Path (Join-Path $touchDir 'LICENSE-和-来源说明.txt') -Value $notice -Encoding UTF8
+}
+
 # 3) 使用说明
 $readme = @"
 绝区零工具箱 $Version
@@ -73,12 +106,10 @@ $readme = @"
        - 反虚化     ：勾上后，点"启动游戏"进游戏会自动生效（也可进游戏后点"立即应用"）。
                       已经注入的效果要重启游戏才会消失。
        - 手机触控UI ：改的是游戏自己的设置，勾完重启游戏生效。
-       - 触屏模拟   ：想用鼠标模拟手指喂给游戏，让虚拟摇杆能推。用的是 Windows
-                      自带的触摸注入 API，不向游戏注入任何代码。**打开时程序会先自检**，
-                      本机系统不允许触摸注入的话会直接弹窗说明并自动关掉该开关
-                      （开发机上实测就是这种情况）。
-                      摇杆的替代方案：把画面串流到手机/平板上玩（那边是真触摸），
-                      或者接一块真的触摸屏。
+       - 触控增强   ：把鼠标动作当作触摸送进游戏，手机 UI 的虚拟摇杆就能推了。
+                      **不需要装任何串流软件，也不需要电脑有触摸屏。**
+                      用法：先退出游戏 → 勾上它 → 点"启动游戏"。
+                      （游戏必须由本程序启动，载荷只注入自己新建的进程。）
   5. 关掉程序后设置会记住，下次打开还是上次的状态。
 
 二、反虚化组件署名
@@ -114,4 +145,4 @@ Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -Compression
 
 $size = [math]::Round((Get-Item $zip).Length / 1MB, 1)
 Write-Host ""
-Write-Host "打包完成：$zip  ($size MB) $blurNote" -ForegroundColor Green
+Write-Host "打包完成：$zip  ($size MB) $blurNote $touchNote" -ForegroundColor Green

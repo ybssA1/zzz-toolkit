@@ -20,7 +20,6 @@ public sealed class MainForm : Form
 
     private readonly CheckBox _chkTouchSim = new();
     private readonly Label _lblTouchState = new();
-    private readonly TouchMouseBridge _touch = new();
 
     private readonly Button _btnLaunch = new();
     private readonly LinkLabel _lnkAuthor = new();
@@ -30,7 +29,6 @@ public sealed class MainForm : Form
 
     private bool _gameWasRunning;
     private bool _blurAppliedThisRun;
-    private string? _lastTouchError;
     private bool _loading;
 
     public const string AuthorName = "Ex_M";
@@ -88,7 +86,7 @@ public sealed class MainForm : Form
         _lblUiState.Location = new Point(378, 80); _lblUiState.Size = new Size(150, 20); _lblUiState.AutoSize = false;
         _lblUiState.TextAlign = ContentAlignment.MiddleRight; _lblUiState.ForeColor = Color.DimGray;
 
-        _chkTouchSim.Text = "触屏模拟（把鼠标当手指，修手机 UI 摇杆不能动）";
+        _chkTouchSim.Text = "触控增强（把鼠标当手指，修手机 UI 摇杆）";
         _chkTouchSim.Location = new Point(12, 106); _chkTouchSim.Size = new Size(400, 26);
         _chkTouchSim.CheckedChanged += (_, _) => OnTouchSimToggled();
         _lblTouchState.Location = new Point(378, 110); _lblTouchState.Size = new Size(150, 20); _lblTouchState.AutoSize = false;
@@ -314,56 +312,37 @@ public sealed class MainForm : Form
     private void OnTouchSimToggled()
     {
         if (_loading) return;
-        if (_chkTouchSim.Checked)
+        if (!_chkTouchSim.Checked)
         {
-            if (!GameLocator.IsGameRunning())
-            {
-                Log("触屏模拟：已开启，游戏启动后自动生效。");
-                _lblTouchState.Text = "等待游戏启动";
-                return;
-            }
-            StartTouchSim();
-        }
-        else
-        {
-            _touch.Stop();
-            Log("触屏模拟：已关闭，鼠标恢复原样。");
+            Log("触控增强：已关闭，下次启动游戏走原版路径。");
             _lblTouchState.Text = "已关闭";
+            return;
         }
+        TouchLaunch tl = Touch();
+        if (!tl.IsAvailable)
+        {
+            Log("触控增强：缺少载荷（需要 touch 文件夹里的 TouchUILaunch.exe 与 .dll）。");
+            _lblTouchState.Text = "缺少载荷";
+            MessageBox.Show(this,
+                "缺少触控载荷。\n\n请把 touch 文件夹（含 TouchUILaunch.exe 与 TouchUILaunch.dll）放到本程序目录。",
+                "缺少载荷", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            _loading = true; _chkTouchSim.Checked = false; _loading = false;
+            return;
+        }
+        if (GameLocator.IsGameRunning())
+        {
+            Log("触控增强：游戏已在运行，无法注入。请先退出游戏，再由本程序启动。");
+            _lblTouchState.Text = "需重启游戏";
+            return;
+        }
+        _lblTouchState.Text = "已就绪";
+        Log("触控增强：已开启。点「启动游戏」时会把鼠标动作当作触摸送进游戏。");
     }
 
-    private void StartTouchSim()
+    private TouchLaunch Touch()
     {
-        uint pid = GameLocator.GameProcessId();
-        if (pid == 0) { _lblTouchState.Text = "找不到游戏进程"; return; }
-
-        if (_touch.Start(pid))
-        {
-            Log($"触屏模拟：已接管鼠标（仅当游戏窗口在前台时）。游戏 pid={pid}，触点结构大小 {TouchMouseBridge.ContactStructSize} 字节。");
-            _lblTouchState.Text = "生效中";
-
-            if (!_touch.SelfTest())
-            {
-                _touch.Stop();
-                _lblTouchState.Text = "本机不支持";
-                Log("触屏模拟：本机系统拒绝触摸注入，摇杆无法通过这条路解决。");
-                MessageBox.Show(this,
-                    "这台电脑的系统不允许程序注入触摸，所以鼠标没法变成手指，虚拟摇杆依然推不动。\n\n" +
-                    "如果你是用手机串流（例如网易UU远程）玩，正确做法是在手机端开启触控模式：\n" +
-                    "    UU远程 →[操作]→[屏幕触控]→ 打开[平板触控模式]\n" +
-                    "开启后手机会把触摸当真实触摸传给电脑，本工具切出来的手机 UI 就能完整操作\n" +
-                    "（包括摇杆），而且支持按下拖动、双指缩放等手势。\n\n" +
-                    "其它可行方案：接一块真的触摸屏，或用 Spacedesk 把平板变成触摸显示器。",
-                    "本机不支持触屏模拟", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                _loading = true; _chkTouchSim.Checked = false; _loading = false;
-            }
-        }
-        else
-        {
-            Log("触屏模拟启动失败：" + (_touch.LastError ?? "未知原因"));
-            _lblTouchState.Text = "启动失败";
-            _loading = true; _chkTouchSim.Checked = false; _loading = false;
-        }
+        string? dir = TouchLaunch.AutoDetect(AppContext.BaseDirectory);
+        return new TouchLaunch(dir ?? Path.Combine(AppContext.BaseDirectory, TouchLaunch.FolderName));
     }
 
     // ── 启动 / 监视 ──────────────────────────────────────────────────────
@@ -374,11 +353,23 @@ public sealed class MainForm : Form
             MessageBox.Show(this, "请先指定游戏目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
+        string exe = Path.Combine(_gamePath.Text, GameLocator.ExeName);
         try
         {
+            if (_chkTouchSim.Checked)
+            {
+                TouchLaunch tl = Touch();
+                if (tl.IsAvailable)
+                {
+                    tl.Start(exe);      // 它负责启动游戏并注入载荷
+                    Log("已用「触控增强」启动游戏：鼠标动作会被当作触摸送进游戏，手机 UI 的摇杆可用。");
+                    return;
+                }
+                Log("触控增强已勾选但找不到载荷，改为直接启动游戏。");
+            }
             Process.Start(new ProcessStartInfo
             {
-                FileName = Path.Combine(_gamePath.Text, GameLocator.ExeName),
+                FileName = exe,
                 WorkingDirectory = _gamePath.Text,
                 UseShellExecute = true,
             });
@@ -390,15 +381,11 @@ public sealed class MainForm : Form
     private void WatchTick()
     {
         bool running = GameLocator.IsGameRunning();
-        // 触屏模拟在跑的时候，把已注入的触摸次数显示出来，便于确认它真的在工作
-        if (_touch.IsRunning)
+        // 触控增强要求游戏由本程序启动（载荷只注入新建的进程），游戏一起来就提示一下
+        if (running && _chkTouchSim.Checked && _lblTouchState.Text == "已就绪")
         {
-            _lblTouchState.Text = $"命中 {_touch.HookHits} / 注入 {_touch.InjectedCount}";
-            if (_touch.LastError is not null && _lastTouchError != _touch.LastError)
-            {
-                _lastTouchError = _touch.LastError;
-                Log("触屏模拟：" + _touch.LastError);
-            }
+            _lblTouchState.Text = "生效中";
+            Log("触控增强：游戏已启动，鼠标动作已作为触摸送入。");
         }
 
         if (running != _gameWasRunning)
@@ -408,13 +395,10 @@ public sealed class MainForm : Form
             RefreshUiState();
             if (running && _chkBlur.Checked) ApplyBlur(false);
 
-            // 触屏模拟跟随游戏进程：游戏起来就接管，游戏退出就交还鼠标
-            if (running && _chkTouchSim.Checked && !_touch.IsRunning) StartTouchSim();
-            else if (!running && _touch.IsRunning)
+            if (!running && _chkTouchSim.Checked && _lblTouchState.Text == "生效中")
             {
-                _touch.Stop();
-                _lblTouchState.Text = "游戏已退出";
-                Log("触屏模拟：游戏已退出，已交还鼠标。");
+                _lblTouchState.Text = "已就绪";
+                Log("触控增强：游戏已退出。");
             }
         }
     }
