@@ -6,71 +6,46 @@ namespace ZzzToolkit;
 
 public sealed class MainForm : Form
 {
-    // ── 控件 ─────────────────────────────────────────────────────────────
+    // ── 界面控件 ─────────────────────────────────────────────────────────
     private readonly TextBox _gamePath = new();
-    private readonly Button _btnBrowseGame = new();
+    private readonly Button _btnBrowse = new();
     private readonly Button _btnDetect = new();
-    private readonly Label _lblGameState = new();
 
-    private readonly Label _lblLayout = new();
-    private readonly Button _btnMobile = new();
-    private readonly Button _btnPc = new();
-
-    private readonly TextBox _blurDir = new();
-    private readonly Button _btnBrowseBlur = new();
+    private readonly CheckBox _chkBlur = new();
     private readonly Button _btnApplyBlur = new();
-    private readonly CheckBox _chkAutoBlur = new();
     private readonly Label _lblBlurState = new();
 
+    private readonly CheckBox _chkMobileUi = new();
+    private readonly Label _lblUiState = new();
+
     private readonly Button _btnLaunch = new();
-    private readonly Button _btnSelfTest = new();
-    private readonly Button _btnRestore = new();
+    private readonly LinkLabel _lnkAuthor = new();
     private readonly TextBox _log = new();
+
     private readonly System.Windows.Forms.Timer _watch = new();
 
     private bool _gameWasRunning;
-    private bool _configLoaded;
+    private bool _blurAppliedThisRun;
+    private bool _loading;
+
+    public const string AuthorName = "Ex_M";
+    public const string AuthorUid = "44434084";
+    public const string AuthorUrl = "https://space.bilibili.com/44434084";
 
     private string ConfigPath => Path.Combine(AppContext.BaseDirectory, "zzz-toolkit.json");
 
-    /// <summary>
-    /// 自制 DPI 缩放：界面尺寸全部按 96 DPI 写死，这里按实际 DPI 等比放大一次。
-    /// 不用 WinForms 自带的 AutoScaleMode——它在高 DPI 下只放大窗体、不放大用代码创建的控件。
-    /// </summary>
-    private void ApplyDpiScale()
-    {
-        float s;
-        try { using Graphics g = Graphics.FromHwnd(IntPtr.Zero); s = g.DpiX / 96f; }
-        catch { return; }
-        if (s <= 1.01f) return;
-
-        ClientSize = new Size((int)(ClientSize.Width * s), (int)(ClientSize.Height * s));
-        foreach (Control c in Controls) ScaleTree(c, s);
-        // 日志框用 Anchor 跟随窗体，缩放后重新贴一次
-        _log.Width = ClientSize.Width - _log.Left - 10;
-        _log.Height = ClientSize.Height - _log.Top - 10;
-    }
-
-    private static void ScaleTree(Control c, float s)
-    {
-        c.Location = new Point((int)(c.Location.X * s), (int)(c.Location.Y * s));
-        if (!c.AutoSize)
-            c.Size = new Size((int)(c.Size.Width * s), (int)(c.Size.Height * s));
-        foreach (Control child in c.Controls) ScaleTree(child, s);
-    }
-
     public MainForm()
     {
-        Text = "绝区零工具箱 · 手机触屏 UI / 关虚化";
-        ClientSize = new Size(640, 520);
-        MinimumSize = new Size(640, 420);
+        Text = "绝区零工具箱";
+        ClientSize = new Size(560, 424);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
         Font = new Font("Microsoft YaHei UI", 9F);
 
         BuildUi();
-        ApplyDpiScale();   // 界面按 96 DPI 设计，这里按实际 DPI 等比放大
+        ApplyDpiScale();
+
         Load += (_, _) => OnFormLoad();
         FormClosing += (_, _) => SaveConfig();
     }
@@ -78,51 +53,56 @@ public sealed class MainForm : Form
     // ── 界面 ─────────────────────────────────────────────────────────────
     private void BuildUi()
     {
-        const int W = 620;
+        const int W = 540;
         int y = 8;
 
-        // ── 游戏 ──
-        var g1 = new GroupBox { Text = " 游戏 ", Location = new Point(10, y), Size = new Size(W, 100) };
+        // ① 游戏路径
+        var g1 = new GroupBox { Text = " 游戏路径 ", Location = new Point(10, y), Size = new Size(W, 84) };
         g1.Controls.Add(new Label { Text = "安装目录", Location = new Point(12, 30), AutoSize = true });
-        _gamePath.Location = new Point(80, 27); _gamePath.Size = new Size(400, 25); _gamePath.ReadOnly = true; _gamePath.TabStop = false;
-        _btnBrowseGame.Text = "浏览…"; _btnBrowseGame.Location = new Point(486, 26); _btnBrowseGame.Size = new Size(122, 27);
-        _btnBrowseGame.Click += (_, _) => BrowseGame();
-        _btnDetect.Text = "自动检测"; _btnDetect.Location = new Point(486, 56); _btnDetect.Size = new Size(122, 27);
+        _gamePath.Location = new Point(80, 27); _gamePath.Size = new Size(310, 25); _gamePath.ReadOnly = true; _gamePath.TabStop = false;
+        _btnBrowse.Text = "浏览…"; _btnBrowse.Location = new Point(396, 26); _btnBrowse.Size = new Size(62, 27);
+        _btnBrowse.Click += (_, _) => BrowseGame();
+        _btnDetect.Text = "自动检测"; _btnDetect.Location = new Point(462, 26); _btnDetect.Size = new Size(68, 27);
         _btnDetect.Click += (_, _) => DetectGame(true);
-        _lblGameState.Location = new Point(12, 60); _lblGameState.Size = new Size(468, 34); _lblGameState.AutoSize = false;
-        g1.Controls.AddRange(new Control[] { _gamePath, _btnBrowseGame, _btnDetect, _lblGameState });
-        Controls.Add(g1); y += 108;
+        g1.Controls.AddRange(new Control[] { _gamePath, _btnBrowse, _btnDetect });
+        Controls.Add(g1); y += 92;
 
-        // ── 手机触屏 UI ──
-        var g2 = new GroupBox { Text = " 手机触屏 UI（改游戏设置文件，不注入、不改游戏本体）", Location = new Point(10, y), Size = new Size(W, 104) };
-        _lblLayout.Location = new Point(12, 28); _lblLayout.Size = new Size(596, 26); _lblLayout.AutoSize = false;
-        _btnMobile.Text = "开启手机 UI"; _btnMobile.Location = new Point(12, 60); _btnMobile.Size = new Size(150, 34);
-        _btnMobile.Click += (_, _) => SwitchLayout(UiLayout.Mobile);
-        _btnPc.Text = "恢复 PC UI"; _btnPc.Location = new Point(170, 60); _btnPc.Size = new Size(150, 34);
-        _btnPc.Click += (_, _) => SwitchLayout(UiLayout.Pc);
-        _btnSelfTest.Text = "格式自检"; _btnSelfTest.Location = new Point(328, 60); _btnSelfTest.Size = new Size(120, 34);
-        _btnSelfTest.Click += (_, _) => SelfTest();
-        _btnRestore.Text = "还原备份"; _btnRestore.Location = new Point(456, 60); _btnRestore.Size = new Size(152, 34);
-        _btnRestore.Click += (_, _) => RestoreBackup();
-        g2.Controls.AddRange(new Control[] { _lblLayout, _btnMobile, _btnPc, _btnSelfTest, _btnRestore });
-        Controls.Add(g2); y += 112;
+        // ②③ 两个开关
+        var g2 = new GroupBox { Text = " 功能开关 ", Location = new Point(10, y), Size = new Size(W, 122) };
+        _chkBlur.Text = "反虚化（关闭角色虚化 / 镜头贴近时的消隐）";
+        _chkBlur.Location = new Point(12, 28); _chkBlur.Size = new Size(400, 26);
+        _chkBlur.CheckedChanged += (_, _) => OnBlurToggled();
+        _btnApplyBlur.Text = "立即应用"; _btnApplyBlur.Location = new Point(424, 26); _btnApplyBlur.Size = new Size(104, 30);
+        _btnApplyBlur.Click += (_, _) => ApplyBlur(true);
+        _lblBlurState.Location = new Point(12, 56); _lblBlurState.Size = new Size(516, 18); _lblBlurState.AutoSize = false;
+        _lblBlurState.ForeColor = Color.DimGray;
 
-        // ── 关虚化 ──
-        var g3 = new GroupBox { Text = " 关虚化（调用你自备的补丁组件，本项目不附带）", Location = new Point(10, y), Size = new Size(W, 148) };
-        g3.Controls.Add(new Label { Text = "组件目录", Location = new Point(12, 30), AutoSize = true });
-        _blurDir.Location = new Point(80, 27); _blurDir.Size = new Size(400, 25); _blurDir.ReadOnly = true; _blurDir.TabStop = false;
-        _btnBrowseBlur.Text = "浏览…"; _btnBrowseBlur.Location = new Point(486, 26); _btnBrowseBlur.Size = new Size(122, 27);
-        _btnBrowseBlur.Click += (_, _) => BrowseBlur();
-        _chkAutoBlur.Text = "游戏启动后自动应用"; _chkAutoBlur.Location = new Point(12, 64); _chkAutoBlur.Size = new Size(240, 28);
-        _btnApplyBlur.Text = "应用虚化补丁"; _btnApplyBlur.Location = new Point(260, 62); _btnApplyBlur.Size = new Size(170, 34);
-        _btnApplyBlur.Click += (_, _) => ApplyBlur();
-        _lblBlurState.Location = new Point(12, 102); _lblBlurState.Size = new Size(596, 40); _lblBlurState.AutoSize = false;
-        g3.Controls.AddRange(new Control[] { _blurDir, _btnBrowseBlur, _chkAutoBlur, _btnApplyBlur, _lblBlurState });
-        Controls.Add(g3); y += 156;
+        _chkMobileUi.Text = "手机触控 UI（下个游戏界面变成手机布局）";
+        _chkMobileUi.Location = new Point(12, 78); _chkMobileUi.Size = new Size(400, 26);
+        _chkMobileUi.CheckedChanged += (_, _) => OnMobileUiToggled();
+        _lblUiState.Location = new Point(380, 82); _lblUiState.Size = new Size(148, 20); _lblUiState.AutoSize = false;
+        _lblUiState.TextAlign = ContentAlignment.MiddleRight; _lblUiState.ForeColor = Color.DimGray;
 
-        _btnLaunch.Text = "启动游戏"; _btnLaunch.Location = new Point(10, y); _btnLaunch.Size = new Size(W, 36);
+        g2.Controls.AddRange(new Control[] { _chkBlur, _btnApplyBlur, _lblBlurState, _chkMobileUi, _lblUiState });
+        Controls.Add(g2); y += 130;
+
+        _btnLaunch.Text = "启动游戏"; _btnLaunch.Location = new Point(10, y); _btnLaunch.Size = new Size(W, 34);
         _btnLaunch.Click += (_, _) => LaunchGame();
-        Controls.Add(_btnLaunch); y += 44;
+        Controls.Add(_btnLaunch); y += 42;
+
+        // ④ 作者署名
+        var g4 = new GroupBox { Text = " 作者署名 ", Location = new Point(10, y), Size = new Size(W, 72) };
+        g4.Controls.Add(new Label
+        {
+            Text = $"反虚化组件由 {AuthorName} 制作，版权归其所有",
+            Location = new Point(12, 22), Size = new Size(516, 20), AutoSize = false,
+            Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold),
+        });
+        _lnkAuthor.Text = $"B 站 @{AuthorName}（UID: {AuthorUid}）";
+        _lnkAuthor.Location = new Point(12, 44); _lnkAuthor.Size = new Size(516, 20); _lnkAuthor.AutoSize = false;
+        _lnkAuthor.LinkClicked += (_, _) => OpenAuthor();
+        g4.Controls.Add(_lnkAuthor);
+        Controls.Add(g4); y += 80;
 
         _log.Location = new Point(10, y); _log.Size = new Size(W, ClientSize.Height - y - 10);
         _log.Multiline = true; _log.ReadOnly = true; _log.ScrollBars = ScrollBars.Vertical;
@@ -134,29 +114,46 @@ public sealed class MainForm : Form
         _watch.Tick += (_, _) => WatchTick();
     }
 
-    private void RestoreBackup()
+    /// <summary>按 96 DPI 设计，这里按实际 DPI 等比放大一次。</summary>
+    private void ApplyDpiScale()
     {
-        GameSettings? s = Settings();
-        if (s is null || !s.Exists) { Log("请先指定有效的游戏目录。"); return; }
-        try { s.RestoreBackup(); Log("已用备份还原设置文件。"); }
-        catch (Exception ex) { Log("还原失败：" + ex.Message); }
-        RefreshState();
+        float s;
+        try { using Graphics g = Graphics.FromHwnd(IntPtr.Zero); s = g.DpiX / 96f; }
+        catch { return; }
+        if (s <= 1.01f) return;
+
+        ClientSize = new Size((int)(ClientSize.Width * s), (int)(ClientSize.Height * s));
+        foreach (Control c in Controls) ScaleTree(c, s);
+        _log.Width = ClientSize.Width - _log.Left - 10;
+        _log.Height = ClientSize.Height - _log.Top - 10;
     }
 
-    private void Log(string s)
+    private static void ScaleTree(Control c, float s)
     {
-        _log.AppendText(DateTime.Now.ToString("HH:mm:ss") + "  " + s + Environment.NewLine);
+        c.Location = new Point((int)(c.Location.X * s), (int)(c.Location.Y * s));
+        if (!c.AutoSize) c.Size = new Size((int)(c.Size.Width * s), (int)(c.Size.Height * s));
+        foreach (Control child in c.Controls) ScaleTree(child, s);
     }
+
+    private void Log(string s) =>
+        _log.AppendText(DateTime.Now.ToString("HH:mm:ss") + "  " + s + Environment.NewLine);
 
     // ── 生命周期 ─────────────────────────────────────────────────────────
     private void OnFormLoad()
     {
-        LoadConfig();
-        if (!GameLocator.IsGameDir(_gamePath.Text)) DetectGame(false);
-        RefreshState();
+        _loading = true;          // 必须在 DetectGame / RefreshUiState 之前置位，否则初始化会触发写入
+        try
+        {
+            LoadConfig();
+            if (!GameLocator.IsGameDir(_gamePath.Text)) DetectGame(false);
+            RefreshUiState();
+        }
+        finally { _loading = false; }
+
         _watch.Start();
-        ActiveControl = null;   // 别让只读路径框一上来就高亮选中
-        Log("就绪。当前 UI 布局的修改直接作用于游戏设置文件，不需要注入；关虚化需要你自备补丁组件。");
+        ActiveControl = null;
+        Log($"反虚化组件由 B 站 @{AuthorName}（UID {AuthorUid}）制作，版权归其所有。");
+        Log("手机触控 UI 走游戏自身设置，改完需要重启游戏生效。");
     }
 
     private GameSettings? Settings()
@@ -165,152 +162,145 @@ public sealed class MainForm : Form
         return new GameSettings(_gamePath.Text);
     }
 
-    private void RefreshState()
+    private BlurPatch Blur()
     {
-        bool running = GameLocator.IsGameRunning();
-        _lblGameState.Text = "游戏状态：" + (running ? "运行中" : "未运行") +
-            (GameLocator.IsGameDir(_gamePath.Text) ? "" : "    ⚠ 还没有指定有效的游戏目录");
+        string dir = BlurPatch.AutoDetectComponentDir(AppContext.BaseDirectory) ?? Path.Combine(AppContext.BaseDirectory, "blur");
+        return new BlurPatch(dir);
+    }
 
+    private void RefreshUiState()
+    {
         GameSettings? s = Settings();
         if (s is null || !s.Exists)
         {
-            _lblLayout.Text = "当前布局：—（找不到设置文件）";
+            _lblUiState.Text = "找不到设置文件";
+            _chkMobileUi.Enabled = false;
         }
         else
         {
+            _chkMobileUi.Enabled = true;
             try
             {
-                UiLayout l = s.ReadLayout();
-                _lblLayout.Text = "当前布局：" + Describe(l) +
-                    (File.Exists(s.BackupPath) ? "    备份：已存在" : "    备份：尚未创建");
+                _chkMobileUi.Checked = s.ReadLayout() == UiLayout.Mobile;
+                _lblUiState.Text = _chkMobileUi.Checked ? "当前：手机布局" : "当前：PC 布局";
             }
-            catch (Exception ex) { _lblLayout.Text = "当前布局：读取失败 — " + ex.Message; }
+            catch (Exception ex) { _lblUiState.Text = "读取失败"; Log("读取设置失败：" + ex.Message); }
         }
 
-        var blur = new BlurPatch(_blurDir.Text);
-        if (!_configLoaded || string.IsNullOrWhiteSpace(_blurDir.Text))
-        {
-            string? auto = BlurPatch.AutoDetectComponentDir(AppContext.BaseDirectory);
-            if (auto is not null) _blurDir.Text = auto;
-        }
-        _lblBlurState.Text = blur.IsAvailable
-            ? "组件：已找到 " + blur.LoaderPath
-            : "组件：未找到。把第三方补丁解压到本程序目录下的 blur 文件夹即可（本项目不附带该组件）。";
+        BlurPatch b = Blur();
+        _btnApplyBlur.Enabled = b.IsAvailable;
+        _lblBlurState.Text = b.IsAvailable
+            ? (GameLocator.IsGameRunning() ? "组件已就绪，游戏运行中，可立即应用" : "组件已就绪，点「启动游戏」后会自动应用")
+            : "缺少反虚化组件（blur 文件夹）";
     }
 
-    private static string Describe(UiLayout l) => l switch
-    {
-        UiLayout.Mobile => "移动端 / 触屏 UI",
-        UiLayout.Pc => "PC UI",
-        _ => "未知",
-    };
-
-    // ── 游戏目录 ─────────────────────────────────────────────────────────
+    // ── 游戏路径 ─────────────────────────────────────────────────────────
     private void DetectGame(bool announce)
     {
         string? dir = GameLocator.Detect();
         if (dir is null)
         {
-            if (announce) MessageBox.Show(this, "没有自动找到游戏目录，请手动浏览选择。", "提示",
+            if (announce) MessageBox.Show(this, "没有自动找到游戏目录，请手动选择。", "提示",
                 MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         else
         {
             _gamePath.Text = dir;
-            if (announce) Log("已自动检测到游戏目录：" + dir);
+            if (announce) Log("已找到游戏目录：" + dir);
         }
-        _configLoaded = true;
-        RefreshState();
+        RefreshUiState();
     }
 
     private void BrowseGame()
     {
-        using var d = new FolderBrowserDialog { Description = "选择绝区零安装目录（含 ZenlessZoneZero.exe）" };
-        if (d.ShowDialog(this) == DialogResult.OK)
+        using var d = new FolderBrowserDialog { Description = "选择绝区零安装目录（里面应有 ZenlessZoneZero.exe）" };
+        if (d.ShowDialog(this) != DialogResult.OK) return;
+        if (!GameLocator.IsGameDir(d.SelectedPath))
         {
-            if (!GameLocator.IsGameDir(d.SelectedPath))
+            MessageBox.Show(this, "这个目录里没有 " + GameLocator.ExeName + "，请重新选择。", "目录无效",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        _gamePath.Text = d.SelectedPath;
+        RefreshUiState();
+    }
+
+    // ── 开关一：反虚化 ───────────────────────────────────────────────────
+    private void OnBlurToggled()
+    {
+        if (_loading) return;
+        if (_chkBlur.Checked)
+        {
+            if (!Blur().IsAvailable)
             {
-                MessageBox.Show(this, "这个目录里没有找到 " + GameLocator.ExeName + "，请重新选择。", "目录无效",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(this,
+                    "缺少反虚化组件。\n\n请把 Ex_M 的反虚化组件（loader.exe 与 zencen.dll）放进本程序目录下的 blur 文件夹。",
+                    "缺少组件", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                _loading = true; _chkBlur.Checked = false; _loading = false;
                 return;
             }
-            _gamePath.Text = d.SelectedPath;
-            RefreshState();
+            Log("反虚化：已开启，游戏启动时会自动应用。");
+            if (GameLocator.IsGameRunning()) ApplyBlur(false);
+        }
+        else
+        {
+            Log("反虚化：已关闭。已注入的补丁要等游戏重启才会消失。");
+            _lblBlurState.Text = "已关闭（重启游戏后效果消失）";
         }
     }
 
-    // ── 触屏 UI ──────────────────────────────────────────────────────────
-    private void SwitchLayout(UiLayout target)
+    private void ApplyBlur(bool manual)
     {
-        GameSettings? s = Settings();
-        if (s is null || !s.Exists)
+        BlurPatch b = Blur();
+        if (!b.IsAvailable)
         {
-            MessageBox.Show(this, "请先指定有效的游戏目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            if (manual) MessageBox.Show(this, "缺少反虚化组件（blur 文件夹）。", "缺少组件",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
+        if (!GameLocator.IsGameRunning())
+        {
+            if (manual) MessageBox.Show(this, "游戏还没启动。先点「启动游戏」，进游戏后再应用。", "提示",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        if (_blurAppliedThisRun && !manual) return;
+
+        BlurPatch.RunResult r = b.Apply();
+        _blurAppliedThisRun = true;
+        Log((r.Ok ? "反虚化：" : "反虚化失败：") + r.Output.Replace("\r\n", " ").Replace("\n", " "));
+        _lblBlurState.Text = r.Ok ? "已应用" : "应用失败，详见下方日志";
+    }
+
+    // ── 开关二：手机触控 UI ──────────────────────────────────────────────
+    private void OnMobileUiToggled()
+    {
+        if (_loading) return;
+        GameSettings? s = Settings();
+        if (s is null || !s.Exists) { RefreshUiState(); return; }
+
+        UiLayout target = _chkMobileUi.Checked ? UiLayout.Mobile : UiLayout.Pc;
         try
         {
             s.WriteLayout(target);
-            Log($"UI 布局已切换为「{Describe(target)}」（写入后已回读校验通过）。");
-            if (GameLocator.IsGameRunning())
-                Log("注意：游戏正在运行，改动会在下次启动游戏时生效。");
+            _lblUiState.Text = target == UiLayout.Mobile ? "当前：手机布局" : "当前：PC 布局";
+            Log($"手机触控 UI：已{(target == UiLayout.Mobile ? "开启" : "关闭")}，重启游戏后生效。");
+            if (GameLocator.IsGameRunning()) Log("（游戏正在运行，改动下次启动生效。）");
         }
         catch (Exception ex)
         {
             Log("切换失败：" + ex.Message);
             MessageBox.Show(this, ex.Message, "切换失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-        RefreshState();
-    }
-
-    private void SelfTest()
-    {
-        GameSettings? s = Settings();
-        if (s is null || !s.Exists) { Log("自检：请先指定有效的游戏目录。"); return; }
-        try
-        {
-            bool ok = s.RoundTripIsLossless();
-            UiLayout l = s.ReadLayout();
-            Log(ok
-                ? $"自检通过：解码后再编码与原文件逐字节一致；当前布局 = {Describe(l)}。"
-                : "自检失败：编解码无法无损还原，你的游戏版本可能改了设置文件格式，请勿写入并反馈问题。");
-        }
-        catch (Exception ex) { Log("自检出错：" + ex.Message); }
-    }
-
-    // ── 关虚化 ───────────────────────────────────────────────────────────
-    private void BrowseBlur()
-    {
-        using var d = new FolderBrowserDialog { Description = "选择补丁组件目录（里面应有 loader.exe）" };
-        if (d.ShowDialog(this) == DialogResult.OK)
-        {
-            _blurDir.Text = d.SelectedPath;
-            RefreshState();
+            _loading = true; _chkMobileUi.Checked = !_chkMobileUi.Checked; _loading = false;
         }
     }
 
-    private void ApplyBlur()
-    {
-        var blur = new BlurPatch(_blurDir.Text);
-        if (!blur.IsAvailable)
-        {
-            MessageBox.Show(this,
-                "没有找到补丁组件。\n\n" +
-                "本程序只提供「关虚化」的调用入口，不附带补丁载荷（第三方作品，未经授权不宜随本项目分发）。\n\n" +
-                "请把补丁解压到本程序目录下的 blur 文件夹，或用「浏览…」指定它的目录。",
-                "缺少补丁组件", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-        BlurPatch.RunResult r = blur.Apply();
-        Log((r.Ok ? "虚化补丁：" : "虚化补丁失败：") + r.Output);
-    }
-
-    // ── 启动游戏 / 监视 ──────────────────────────────────────────────────
+    // ── 启动 / 监视 ──────────────────────────────────────────────────────
     private void LaunchGame()
     {
         if (!GameLocator.IsGameDir(_gamePath.Text))
         {
-            MessageBox.Show(this, "请先指定有效的游戏目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "请先指定游戏目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
         try
@@ -323,7 +313,7 @@ public sealed class MainForm : Form
             });
             Log("已启动游戏。");
         }
-        catch (Exception ex) { Log("启动游戏失败：" + ex.Message); }
+        catch (Exception ex) { Log("启动失败：" + ex.Message); }
     }
 
     private void WatchTick()
@@ -332,58 +322,45 @@ public sealed class MainForm : Form
         if (running != _gameWasRunning)
         {
             _gameWasRunning = running;
-            RefreshState();
+            _blurAppliedThisRun = false;
+            RefreshUiState();
+            if (running && _chkBlur.Checked) ApplyBlur(false);
         }
-        if (running && _chkAutoBlur.Checked)
-        {
-            var blur = new BlurPatch(_blurDir.Text);
-            if (blur.IsAvailable && !_blurAppliedForThisRun)
-            {
-                _blurAppliedForThisRun = true;
-                Log("检测到游戏已启动，自动应用虚化补丁…");
-                BlurPatch.RunResult r = blur.Apply();
-                Log((r.Ok ? "虚化补丁：" : "虚化补丁失败：") + r.Output);
-            }
-        }
-        if (!running) _blurAppliedForThisRun = false;
     }
 
-    private bool _blurAppliedForThisRun;
+    private void OpenAuthor()
+    {
+        try { Process.Start(new ProcessStartInfo { FileName = AuthorUrl, UseShellExecute = true }); }
+        catch (Exception ex) { Log("打开链接失败：" + ex.Message); }
+    }
 
     // ── 配置 ─────────────────────────────────────────────────────────────
     private sealed class AppConfig
     {
         public string? GamePath { get; set; }
-        public string? BlurDir { get; set; }
-        public bool AutoBlur { get; set; }
+        public bool BlurEnabled { get; set; }
     }
 
     private void LoadConfig()
     {
         try
         {
-            if (!File.Exists(ConfigPath)) { _configLoaded = true; return; }
+            if (!File.Exists(ConfigPath)) return;
             AppConfig? c = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(ConfigPath));
-            if (c is null) { _configLoaded = true; return; }
+            if (c is null) return;
             _gamePath.Text = c.GamePath ?? "";
-            _blurDir.Text = c.BlurDir ?? "";
-            _chkAutoBlur.Checked = c.AutoBlur;
+            _chkBlur.Checked = c.BlurEnabled;
         }
         catch { /* 配置坏了就用默认值 */ }
-        _configLoaded = true;
     }
 
     private void SaveConfig()
     {
         try
         {
-            var c = new AppConfig
-            {
-                GamePath = _gamePath.Text,
-                BlurDir = _blurDir.Text,
-                AutoBlur = _chkAutoBlur.Checked,
-            };
-            File.WriteAllText(ConfigPath, JsonSerializer.Serialize(c, new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(ConfigPath, JsonSerializer.Serialize(
+                new AppConfig { GamePath = _gamePath.Text, BlurEnabled = _chkBlur.Checked },
+                new JsonSerializerOptions { WriteIndented = true }));
         }
         catch { /* 忽略 */ }
     }

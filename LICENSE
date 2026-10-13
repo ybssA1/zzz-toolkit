@@ -21,12 +21,19 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ---------------------------------------------------------------------------
-NOTE ON THIRD-PARTY COMPONENTS
+NOTE ON THIRD-PARTY COMPONENTS / 第三方组件声明
 
 This license covers the source code of ZZZ Toolkit only. It does NOT cover:
 
-  * any blur-patch payload the user supplies (this project ships none), or
-  * the games themselves, or their trademarks, which belong to their owners.
+  * the anti-blur component written by Ex_M (Bilibili UID 44434084) -
+    loader.exe and zencen.dll. That component is the author's work and its
+    copyright belongs to the author. It is bundled in the *release package*
+    (ZZZToolkit-<version>-portable.zip) purely for convenience so that users
+    only need one download; no modification has been made to it. If the author
+    asks for its removal, it will be removed immediately. A release without
+    that component is also published (ZZZToolkit-<version>-noblur.zip).
+
+  * the games themselves and their trademarks, which belong to their owners.
 
 The Sleepy file-format decoding was written from public community discussion
 (CollapseLauncher/Collapse#466 and fffonion/ZZZConfigManager); it is an
